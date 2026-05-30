@@ -565,10 +565,44 @@ let pronsDraft    = {};   // partido_id -> {gl, gv} pendiente de guardar
 // ================================================================
 // INIT
 // ================================================================
-window.addEventListener('DOMContentLoaded', () => {
+// ================================================================
+// SESSION HELPERS (stay logged in via localStorage)
+// ================================================================
+const LS_KEY_NOMBRE = 'poya_user_nombre';
+const LS_KEY_PWD    = 'poya_user_pwd';
+
+function saveSession(nombre, pwd) {
+  try { localStorage.setItem(LS_KEY_NOMBRE, nombre); localStorage.setItem(LS_KEY_PWD, pwd); } catch(e) {}
+}
+function clearSession() {
+  try { localStorage.removeItem(LS_KEY_NOMBRE); localStorage.removeItem(LS_KEY_PWD); } catch(e) {}
+}
+function getSavedSession() {
+  try { return { nombre: localStorage.getItem(LS_KEY_NOMBRE), pwd: localStorage.getItem(LS_KEY_PWD) }; }
+  catch(e) { return { nombre: null, pwd: null }; }
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
   supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
     auth: { persistSession: false }
   });
+  // Intentar auto-login si hay sesión guardada
+  const saved = getSavedSession();
+  if (saved.nombre && saved.pwd) {
+    try {
+      const { data } = await supa.from('jugadores').select('*')
+        .eq('nombre', saved.nombre).eq('password', saved.pwd).single();
+      if (data) {
+        currentPlayer = data;
+        await showApp();
+        return;
+      }
+      // Credenciales no válidas (cambió la clave o se desactivó el jugador)
+      clearSession();
+    } catch(e) {
+      // Si falla la conexión, mostramos el login normal
+    }
+  }
   cargarJugadoresLogin();
   document.getElementById('inp-pwd').addEventListener('keydown', e => {
     if (e.key === 'Enter') login();
@@ -784,11 +818,13 @@ async function login() {
     showErr('login-err', 'Contraseña incorrecta.');
     return;
   }
+  saveSession(nombre, pwd);
   currentPlayer = data;
   await showApp();
 }
 
 function logout() {
+  clearSession();
   currentPlayer = null;
   allPartidos = []; allJugadores = []; pronsMios = {}; pronsAll = {}; jugPorId = {};
   pronsDraft = {};
@@ -831,6 +867,7 @@ async function guardarNuevaPwd() {
     errEl.classList.add('show'); return;
   }
   currentPlayer.password = nueva;
+  saveSession(currentPlayer.nombre, nueva);
   cerrarCambiarPwd();
   toast('✅ Contraseña actualizada.', false);
 }
